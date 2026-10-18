@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>鄉鎮猜猜樂</title>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#17222e; --line:#24364a; --ink:#e8eef5; --dim:#8da2b8;
+    --land:#2c4257; --accent:#4cc3a5; --warn:#e8a33d; --bad:#e8604c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);overflow:hidden;
+       font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif}
+  #app{display:flex;gap:14px;padding:14px;height:100%;max-width:1400px;margin:0 auto}
+  #mapwrap{flex:1 1 auto;min-width:0;height:100%;position:relative;
+           background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  svg{display:block;width:100%;height:100%;cursor:grab;touch-action:none;user-select:none}
+  svg.panning{cursor:grabbing}
+  .town{fill:var(--land);stroke:#536e87;stroke-width:.7;vector-effect:non-scaling-stroke}
+  .town.hover{fill:#5a86b0;stroke:#d4e6f7;stroke-width:1.2}
+  .town.wrong{fill:#8a3b30;stroke:#e8604c}
+  .town.wrong.hover{fill:#a34a3c}
+  .town.claimed{fill:#2a6b5c;stroke:#4cc3a5}
+  .town.claimed.hover{fill:#35806e}
+  .town.target{fill:#b5543f;stroke:#ffb4a0;stroke-width:1.4}
+  .county{fill:none;stroke:#a8c8e4;stroke-width:2;stroke-linejoin:round;
+          vector-effect:non-scaling-stroke;pointer-events:none}
+  .insetbox{fill:#14202b;stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+  .insetlabel{fill:var(--dim);font-size:13px;pointer-events:none}
+  .answer{fill:var(--accent);stroke:#0d2a22;stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+  .answer-alt{fill:#2f7d6b;stroke:#0d2a22;stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}
+  .guessline{stroke:var(--warn);stroke-width:2;stroke-dasharray:5 5;vector-effect:non-scaling-stroke;pointer-events:none}
+
+  #zoomui{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:6px}
+  #zoomui button{width:34px;height:34px;padding:0;font-size:17px;background:#20303f;color:var(--ink);
+                 border:1px solid var(--line);line-height:1}
+  #zlevel{position:absolute;left:10px;bottom:10px;color:var(--dim);font-size:12px;
+          background:#17222ecc;padding:3px 8px;border-radius:6px;pointer-events:none}
+
+  #side{flex:0 0 320px;display:flex;flex-direction:column;gap:12px;height:100%;min-height:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;flex:0 0 auto}
+  #histcard{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  #hist{overflow-y:auto;font-size:13px;min-height:0}
+  .meta{display:flex;justify-content:space-between;color:var(--dim);font-size:13px;margin-bottom:8px}
+  #qname{font-size:38px;font-weight:700;letter-spacing:2px;line-height:1.15}
+  #qhint{color:var(--dim);font-size:13px;margin-top:6px;min-height:18px}
+  button{width:100%;padding:11px;border-radius:9px;border:0;font-size:16px;font-weight:600;
+         cursor:pointer;background:var(--accent);color:#06251d;font-family:inherit}
+  button:disabled{background:#2a3a48;color:#64788c;cursor:not-allowed}
+  #result{display:none}
+  #score{font-size:32px;font-weight:700}
+  .row{display:flex;justify-content:space-between;padding:5px 0;font-size:14px;border-bottom:1px solid var(--line)}
+  .row:last-child{border:0}
+  .row span:first-child{color:var(--dim)}
+  #hist .row span:first-child{color:var(--ink)}
+  label.opt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);cursor:pointer}
+  h3{margin:0 0 8px;font-size:13px;color:var(--dim);font-weight:600;letter-spacing:1px;flex:0 0 auto}
+  #modes{display:flex;gap:6px;margin-bottom:10px}
+  #modes button{flex:1;padding:8px;font-size:14px;background:#22313f;color:var(--dim)}
+  #modes button.on{background:var(--accent);color:#06251d}
+  select{width:100%;padding:9px;border-radius:8px;background:#22313f;color:var(--ink);
+         border:1px solid var(--line);font-family:inherit;font-size:14px;margin-bottom:8px}
+  #cool{color:var(--bad);font-weight:600}
+  .town.owned{stroke:#fff;stroke-width:1.3}
+  #modes button{font-size:13px;padding:8px 4px}
+  input[type=text]{width:100%;padding:9px;border-radius:8px;background:#22313f;color:var(--ink);
+       border:1px solid var(--line);font-family:inherit;font-size:14px;margin-bottom:8px}
+  .mem{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:14px}
+  .dot{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
+  .sc{margin-left:auto;font-weight:700}
+  #share{font-size:12px;color:var(--dim);word-break:break-all;margin-bottom:8px;
+         background:#1b2733;padding:7px;border-radius:7px;cursor:pointer}
+  #mpstatus{font-size:13px;color:var(--dim);margin-bottom:8px;min-height:18px}
+  .big{font-size:26px;font-weight:700}
+
+  @media(max-width:860px){
+    body{overflow:auto}
+    #app{flex-direction:column;height:auto;min-height:100%}
+    #mapwrap{height:60vh;flex:0 0 auto}
+    #side{height:auto;flex:1 1 auto}
+    #histcard{flex:0 0 auto}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="mapwrap">
+    <svg id="map" viewBox="0 0 920 1000" preserveAspectRatio="xMidYMid meet"></svg>
+    <div id="zlevel">1.0×</div>
+    <div id="zoomui">
+      <button id="zin" title="放大">＋</button>
+      <button id="zout" title="縮小">－</button>
+      <button id="zreset" title="重設視角" style="font-size:14px">⟲</button>
+    </div>
+  </div>
+  <div id="side">
+    <div class="card" style="padding-bottom:10px">
+      <div id="modes">
+        <button id="mDist" class="on">距離</button>
+        <button id="mConq">占領</button>
+        <button id="mMulti">連線對戰</button>
+      </div>
+      <div id="setup" style="display:none">
+        <select id="scope"></select>
+        <button id="startConq">開始</button>
+      </div>
+      <div id="mpsetup" style="display:none">
+        <div id="mpstatus">尚未連線</div>
+        <div id="share" style="display:none" title="點一下複製"></div>
+        <input type="text" id="pname" maxlength="12" placeholder="你的暱稱">
+        <button id="mpGo">建立房間</button>
+        <div id="mphost" style="display:none;margin-top:8px">
+          <select id="mpscope"></select>
+          <button id="mpStart">開始比賽</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="meta"><span id="roundno">第 1 / 5 題</span><span id="total">0 分</span></div>
+      <div id="qname">載入中…</div>
+      <div id="qhint"></div>
+    </div>
+    <div class="card">
+      <button id="btn" disabled>請先在地圖上點一個位置</button>
+      <div id="result">
+        <div id="score" style="margin:12px 0 8px"></div>
+        <div class="row"><span>正確答案</span><span id="rAns"></span></div>
+        <div class="row"><span>距離</span><span id="rDist"></span></div>
+      </div>
+      <div id="cstats" style="display:none">
+        <div class="row"><span>已占領</span><span id="cOwn">0</span></div>
+        <div class="row"><span>剩餘</span><span id="cLeft">0</span></div>
+        <div class="row"><span>答錯</span><span id="cWrong">0</span></div>
+        <div class="row"><span>時間</span><span id="cTime">0:00</span></div>
+      </div>
+    </div>
+    <div class="card" id="histcard">
+      <h3 id="histtitle">本局紀錄</h3>
+      <div id="hist" style="color:var(--dim)">尚無紀錄</div>
+    </div>
+    <div class="card" id="optcard">
+      <h3>設定</h3>
+      <label class="opt"><input type="checkbox" id="optIslands"> 排除離島（金門、馬祖、澎湖、蘭嶼、綠島）</label>
+      <label class="opt" style="margin-top:6px"><input type="checkbox" id="optCounty"> 題目顯示縣市（簡單模式）</label>
+    </div>
+  </div>
+</div>
+
+<script>
+const ROUNDS = 5, SCALE = 50;          // SCALE：分數衰減距離（公里）
+const COOLDOWN_SOLO = 0;               // 單人：不冷卻，靠試錯慢慢刪去
+const COOLDOWN_MP   = 2000;            // 連線：答錯罰 2 秒（尚未啟用）
+const ZMIN = 1, ZMAX = 40;
+const VBW = 920, VBH = 1000;
+const svg = document.getElementById('map');
+let TOWNS = [], COUNTIES = [], GROUPS = {}, PROJ = {}, state = null, session = [];
+
+/* ---------- 投影 ---------- */
+function makeProj(b, box){
+  const latm = (b[1]+b[3])/2, k = Math.cos(latm*Math.PI/180);
+  const w = (b[2]-b[0])*k, h = b[3]-b[1];
+  const s = Math.min(box.w/w, box.h/h);
+  const ox = box.x + (box.w - w*s)/2, oy = box.y + (box.h - h*s)/2;
+  return {box, bounds:b,
+    to:(lng,lat)=>[ox+(lng-b[0])*k*s, oy+(b[3]-lat)*s],
+    inv:(px,py)=>[(px-ox)/(k*s)+b[0], b[3]-(py-oy)/s]};
+}
+function boundsOf(region){
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const t of TOWNS) for(const r of t.p) if(r.r===region)
+    for(const [x,y] of r.c){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
+  return [x0,y0,x1,y1];
+}
+
+/* ---------- 幾何 ---------- */
+const KX = lat => 111.320*Math.cos(lat*Math.PI/180), KY = 110.574;
+function inRing(c, lng, lat){
+  let hit=false;
+  for(let i=0,j=c.length-1;i<c.length;j=i++){
+    const [xi,yi]=c[i],[xj,yj]=c[j];
+    if((yi>lat)!==(yj>lat) && lng < (xj-xi)*(lat-yi)/(yj-yi)+xi) hit=!hit;
+  }
+  return hit;
+}
+function distRing(c, lng, lat){
+  const kx=KX(lat), px=lng*kx, py=lat*KY; let best=Infinity;
+  for(let i=0;i<c.length-1;i++){
+    const ax=c[i][0]*kx, ay=c[i][1]*KY, bx=c[i+1][0]*kx, by=c[i+1][1]*KY;
+    const dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy;
+    let t = L ? ((px-ax)*dx+(py-ay)*dy)/L : 0;
+    t = t<0?0:t>1?1:t;
+    const qx=ax+t*dx-px, qy=ay+t*dy-py, d=qx*qx+qy*qy;
+    if(d<best) best=d;
+  }
+  return Math.sqrt(best);
+}
+function distTown(t, lng, lat){
+  let best=Infinity;
+  for(const r of t.p){ if(inRing(r.c,lng,lat)) return 0; const d=distRing(r.c,lng,lat); if(d<best)best=d; }
+  return best;
+}
+
+/* ---------- 題庫 ---------- */
+const OFFSHORE = new Set(['金門縣','連江縣','澎湖縣']);
+const isOffshore = t => OFFSHORE.has(t.c) || t.n==='蘭嶼鄉' || t.n==='綠島鄉';
+function pool(){
+  const skip = document.getElementById('optIslands').checked;
+  return Object.values(GROUPS).filter(g => !skip || g.some(t=>!isOffshore(t)))
+               .map(g => skip ? g.filter(t=>!isOffshore(t)) : g)
+               .filter(g => g.length);
+}
+
+/* ---------- 繪圖 ---------- */
+const NS='http://www.w3.org/2000/svg';
+function el(tag, attrs){ const e=document.createElementNS(NS,tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+function pathOf(ring, proj){
+  let d='';
+  for(let i=0;i<ring.length;i++){ const [x,y]=proj.to(ring[i][0],ring[i][1]);
+    d += (i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1); }
+  return d+'Z';
+}
+let viewport, baseLayer, fxArea, countyLayer, fxTop;
+function clearFx(){ fxArea.innerHTML=''; fxTop.innerHTML=''; }
+function drawBase(){
+  svg.innerHTML='';
+  viewport = el('g',{id:'viewport'});
+  baseLayer=el('g',{}); fxArea=el('g',{}); countyLayer=el('g',{}); fxTop=el('g',{});
+  svg.appendChild(viewport);
+  for(const key of ['kinmen','matsu']){
+    const b=PROJ[key].box;
+    viewport.appendChild(el('rect',{x:b.x,y:b.y,width:b.w,height:b.h,rx:8,class:'insetbox'}));
+    const lab=el('text',{x:b.x+8,y:b.y+18,class:'insetlabel'});
+    lab.textContent = key==='kinmen'?'金門':'馬祖'; viewport.appendChild(lab);
+  }
+  viewport.appendChild(baseLayer); viewport.appendChild(fxArea);
+  viewport.appendChild(countyLayer); viewport.appendChild(fxTop);
+  for(const t of TOWNS){
+    t.els = [];
+    for(const r of t.p){
+      const pth = el('path',{d:pathOf(r.c, PROJ[r.r]), class:'town'});
+      pth.__town = t; baseLayer.appendChild(pth); t.els.push(pth);
+      const m = tinyMark(r);
+      if(m){ m.__town = t; baseLayer.appendChild(m); t.els.push(m); }
+    }
+  }
+  for(const c of COUNTIES) for(const r of c.p)
+    countyLayer.appendChild(el('path',{d:pathOf(r.c, PROJ[r.r]), class:'county'}));
+}
+// 螢幕上小於 6px 的島嶼另外補一個圓點，否則看不見也點不到（會隨地圖一起放大）
+function tinyMark(r, cls){
+  const pr=PROJ[r.r]; let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const [lng,lat] of r.c){ const [x,y]=pr.to(lng,lat);
+    if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
+  if(Math.max(x1-x0, y1-y0) >= 6) return null;
+  return el('circle',{cx:(x0+x1)/2, cy:(y0+y1)/2, r:4, class:cls||'town'});
+}
+function baseRectOfCounty(county){
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const t of TOWNS) if(t.c===county) for(const r of t.p){
+    const pr=PROJ[r.r];
+    for(const [lng,lat] of r.c){ const [x,y]=pr.to(lng,lat);
+      if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
+  }
+  const pad = Math.max(x1-x0, y1-y0)*0.08;
+  return [x0-pad, y0-pad, x1+pad, y1+pad];
+}
+function hitRegion(px,py){
+  for(const k of ['kinmen','matsu']){ const b=PROJ[k].box;
+    if(px>=b.x&&px<=b.x+b.w&&py>=b.y&&py<=b.y+b.h) return k; }
+  return 'main';
+}
+function screenPt(lng,lat){
+  for(const k of ['kinmen','matsu','main']){
+    const b=PROJ[k].bounds;
+    if(lng>=b[0]&&lng<=b[2]&&lat>=b[1]&&lat<=b[3]) return PROJ[k].to(lng,lat);
+  }
+  return PROJ.main.to(lng,lat);
+}
+
+/* ---------- 縮放與平移 ---------- */
+const view = {k:1, tx:0, ty:0, rect:[0,0,VBW,VBH], kmin:1};
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+// 把可縮放／可平移的範圍限制在 rect（底圖座標）內；全國時 rect 就是整張畫布
+function setViewLimit(rect, fit){
+  view.rect = rect;
+  const w=rect[2]-rect[0], h=rect[3]-rect[1];
+  view.kmin = Math.max(VBW/w, VBH/h);        // 縮到最小時 rect 至少塞滿畫面
+  if(fit!==false){ view.k = view.kmin; view.tx = -rect[0]*view.k; view.ty = -rect[1]*view.k; }
+  applyView();
+}
+function applyView(){
+  const [rx0,ry0,rx1,ry1] = view.rect;
+  view.k = clamp(view.k, view.kmin, Math.max(ZMAX, view.kmin));
+  const visW = VBW/view.k, visH = VBH/view.k, rw = rx1-rx0, rh = ry1-ry0;
+  view.tx = visW >= rw ? VBW/2 - (rx0+rw/2)*view.k
+                       : clamp(view.tx, VBW - rx1*view.k, -rx0*view.k);
+  view.ty = visH >= rh ? VBH/2 - (ry0+rh/2)*view.k
+                       : clamp(view.ty, VBH - ry1*view.k, -ry0*view.k);
+  viewport.setAttribute('transform',`translate(${view.tx} ${view.ty}) scale(${view.k})`);
+  // 讓標記與文字不隨縮放變大
+  for(const c of fxTop.querySelectorAll('circle')) c.setAttribute('r', 6/view.k);
+  for(const t of svg.querySelectorAll('.insetlabel')) t.setAttribute('font-size', 13/view.k);
+  document.getElementById('zlevel').textContent =
+    (view.k/view.kmin).toFixed(1)+'×' + (view.rect[2]-view.rect[0]<VBW ? ' · 鎖定'+conq.scope : '');
+}
+// client 座標 → viewBox 座標（未經 viewport transform）
+function toVB(ev){
+  const p = svg.createSVGPoint(); p.x=ev.clientX; p.y=ev.clientY;
+  return p.matrixTransform(svg.getScreenCTM().inverse());
+}
+// viewBox 座標 → 底圖座標（已還原 viewport transform）
+const toBase = p => ({x:(p.x-view.tx)/view.k, y:(p.y-view.ty)/view.k});
+function zoomAt(vb, factor){
+  const b = toBase(vb);
+  view.k = clamp(view.k*factor, view.kmin, Math.max(ZMAX, view.kmin));
+  view.tx = vb.x - view.k*b.x;
+  view.ty = vb.y - view.k*b.y;
+  applyView();
+}
+let down=null, moved=false, pinch=null;
+function bindZoom(){
+  svg.addEventListener('wheel', ev=>{
+    ev.preventDefault();
+    zoomAt(toVB(ev), Math.exp(-ev.deltaY*0.0045));
+  }, {passive:false});
+
+  svg.addEventListener('pointerdown', ev=>{
+    if(ev.pointerType!=='touch') svg.setPointerCapture(ev.pointerId);
+    down={x:ev.clientX,y:ev.clientY,vb:toVB(ev),target:ev.target}; moved=false;
+    svg.classList.add('panning');
+  });
+  svg.addEventListener('pointermove', ev=>{
+    if(!down || pinch) return;
+    if(Math.hypot(ev.clientX-down.x, ev.clientY-down.y) > 4) moved=true;
+    if(!moved) return;
+    const vb = toVB(ev);
+    view.tx += vb.x - down.vb.x; view.ty += vb.y - down.vb.y;
+    applyView();
+    down.vb = toVB(ev);
+  });
+  const up = ev=>{
+    svg.classList.remove('panning');
+    if(down && !moved && !pinch) onPick(down.vb, down.target);
+    down=null;
+  };
+  svg.addEventListener('pointerup', up);
+  svg.addEventListener('pointercancel', ()=>{ down=null; svg.classList.remove('panning'); });
+
+  // 雙指縮放
+  const pts=new Map();
+  svg.addEventListener('pointerdown', ev=>{ pts.set(ev.pointerId,ev); });
+  svg.addEventListener('pointermove', ev=>{
+    if(!pts.has(ev.pointerId)) return;
+    pts.set(ev.pointerId,ev);
+    if(pts.size!==2) return;
+    const [a,b]=[...pts.values()];
+    const d=Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    const mid={clientX:(a.clientX+b.clientX)/2, clientY:(a.clientY+b.clientY)/2};
+    if(pinch) zoomAt(toVB(mid), d/pinch);
+    pinch=d; moved=true;
+  });
+  for(const e of ['pointerup','pointercancel'])
+    svg.addEventListener(e, ev=>{ pts.delete(ev.pointerId); if(pts.size<2) pinch=null; });
+
+  // 滑過鄉鎮就打亮整個鄉鎮，點下去前先確認點到哪一個
+  let hovered=null;
+  function setHover(t){
+    if(t===hovered) return;
+    if(hovered) for(const e of hovered.els) e.classList.remove('hover');
+    hovered = t;
+    if(hovered) for(const e of hovered.els) e.classList.add('hover');
+  }
+  svg.addEventListener('pointermove', ev=>{
+    if(down && moved) return setHover(null);          // 平移中不打亮
+    setHover(ev.target && ev.target.__town || null);
+  });
+  svg.addEventListener('pointerleave', ()=>setHover(null));
+
+  document.getElementById('zin').onclick  = ()=> zoomAt({x:VBW/2,y:VBH/2}, 2.2);
+  document.getElementById('zout').onclick = ()=> zoomAt({x:VBW/2,y:VBH/2}, 1/2.2);
+  document.getElementById('zreset').onclick = ()=> setViewLimit(view.rect);
+}
+
+/* ---------- 遊戲流程 ---------- */
+function newRound(){
+  const p = pool();
+  const g = p[Math.floor(Math.random()*p.length)];
+  state = {group:g, guess:null, done:false};
+  document.getElementById('qname').textContent =
+    document.getElementById('optCounty').checked ? g[0].c + g[0].n : g[0].n;
+  document.getElementById('qhint').textContent =
+    g.length>1 ? `全台有 ${g.length} 個同名鄉鎮，點中任一個都算` : '';
+  document.getElementById('roundno').textContent = `第 ${session.length+1} / ${ROUNDS} 題`;
+  document.getElementById('result').style.display='none';
+  const btn=document.getElementById('btn');
+  btn.disabled=true; btn.textContent='請先在地圖上點一個位置';
+  clearFx();
+}
+function onPick(vb, target){
+  if(mode==='multi') return mpPick(target && target.__town || null);
+  if(mode==='conq')  return pickConq(target && target.__town || null);
+  if(!state || state.done) return;
+  const b = toBase(vb);
+  const [lng,lat] = PROJ[hitRegion(b.x,b.y)].inv(b.x,b.y);
+  state.guess = {lng, lat, px:b.x, py:b.y};
+  clearFx();
+  fxTop.appendChild(el('circle',{cx:b.x,cy:b.y,r:6/view.k,fill:'var(--warn)',
+                                 stroke:'#1b2a39','stroke-width':2,'vector-effect':'non-scaling-stroke'}));
+  const btn=document.getElementById('btn'); btn.disabled=false; btn.textContent='確定作答';
+}
+function submit(){
+  const btn=document.getElementById('btn');
+  if(state.done) return session.length>=ROUNDS ? finish() : newRound();
+
+  const {lng,lat,px,py} = state.guess;
+  let best=null;
+  for(const t of state.group){ const d=distTown(t,lng,lat); if(!best||d<best.d) best={t,d}; }
+  const score = best.d===0 ? 1000 : Math.round(1000*Math.exp(-best.d/SCALE));
+  state.done=true;
+  session.push({ans:best.t, d:best.d, score});
+
+  for(const t of state.group) for(const r of t.p){
+    const cls = t===best.t?'answer':'answer-alt';
+    fxArea.appendChild(el('path',{d:pathOf(r.c,PROJ[r.r]), class:cls}));
+    const m = tinyMark(r, cls); if(m) fxArea.appendChild(m);
+  }
+  const [ax,ay]=screenPt(best.t.cx,best.t.cy);
+  fxTop.appendChild(el('line',{x1:px,y1:py,x2:ax,y2:ay,class:'guessline'}));
+  fxTop.appendChild(el('circle',{cx:px,cy:py,r:6/view.k,fill:'var(--warn)',
+                                 stroke:'#1b2a39','stroke-width':2,'vector-effect':'non-scaling-stroke'}));
+
+  document.getElementById('result').style.display='block';
+  const s=document.getElementById('score');
+  s.textContent = score + ' 分';
+  s.style.color = score>=800?'var(--accent)':score>=400?'var(--warn)':'var(--bad)';
+  document.getElementById('rAns').textContent = best.t.c + best.t.n;
+  document.getElementById('rDist').textContent = best.d===0 ? '點在範圍內 🎯' : best.d.toFixed(1)+' 公里';
+  renderHist();
+  btn.textContent = session.length>=ROUNDS ? '看總成績' : '下一題 →';
+}
+function renderHist(){
+  const h=document.getElementById('hist');
+  if(!session.length){ h.textContent='尚無紀錄'; return; }
+  h.innerHTML = session.map(r=>
+    `<div class="row"><span>${r.ans.c}${r.ans.n}</span><span>${r.d===0?'🎯':r.d.toFixed(0)+'km'} · ${r.score}</span></div>`).join('');
+  document.getElementById('total').textContent = session.reduce((a,b)=>a+b.score,0) + ' 分';
+}
+function finish(){
+  const tot=session.reduce((a,b)=>a+b.score,0);
+  document.getElementById('qname').textContent = tot + ' / ' + (ROUNDS*1000);
+  document.getElementById('qhint').textContent = '本局結束';
+  document.getElementById('result').style.display='none';
+  const btn=document.getElementById('btn');
+  btn.disabled=false; btn.textContent='再玩一局';
+  btn.onclick=()=>{ session=[]; renderHist(); btn.onclick=submit;
+                    document.getElementById('total').textContent='0 分'; newRound(); };
+}
+
+/* ---------- 占領模式 ---------- */
+let mode='dist';
+const BYID = {};
+const conq = {scope:null, seed:0, queue:[], idx:0, claimed:new Set(), wrongSet:new Set(),
+              wrong:0, t0:0, cool:0, cooldown:COOLDOWN_SOLO, timer:null, done:false};
+
+// 可重現的亂數：之後連線版只要同房同 seed，大家的出題順序就完全一致
+function mulberry32(a){ return function(){
+  a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function shuffled(arr, seed){
+  const r=mulberry32(seed), a=arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+const inScope = t => conq.scope==='ALL' || t.c===conq.scope;
+
+function startConquer(scope, seed){
+  conq.scope=scope; conq.seed=seed>>>0; conq.done=false;
+  conq.queue = shuffled(TOWNS.filter(inScope).map(t=>t.id), conq.seed);
+  conq.total = conq.queue.length;
+  conq.idx=0; conq.claimed=new Set(); conq.wrongSet=new Set();
+  conq.wrong=0; conq.cool=0; conq.t0=Date.now();
+  for(const t of TOWNS) for(const e of t.els) e.classList.remove('claimed','wrong');
+  clearFx();
+  document.getElementById('setup').style.display='none';
+  document.getElementById('btn').style.display='none';
+  document.getElementById('result').style.display='none';
+  document.getElementById('cstats').style.display='block';
+  setViewLimit(scope==='ALL' ? [0,0,VBW,VBH] : baseRectOfCounty(scope));
+  if(conq.timer) clearInterval(conq.timer);
+  conq.timer=setInterval(tickConq,100);
+  nextConq();
+}
+function nextConq(){
+  while(conq.idx<conq.queue.length && conq.claimed.has(conq.queue[conq.idx])) conq.idx++;
+  if(conq.idx>=conq.queue.length) return finishConq();
+  document.getElementById('qname').textContent = BYID[conq.queue[conq.idx]].n;
+  renderConq();
+}
+function clearWrongMarks(){
+  for(const id of conq.wrongSet) for(const e of BYID[id].els) e.classList.remove('wrong');
+  conq.wrongSet.clear();
+}
+function pickConq(town){
+  if(conq.done || !conq.queue.length) return;
+  if(!town) return;                                  // 點到海上，不罰
+  if(Date.now() < conq.cool) return;                 // 冷卻中（連線版才有）
+  if(conq.claimed.has(town.id)) return;              // 已被占領，不罰
+  if(conq.wrongSet.has(town.id)) return;             // 這題已經試過且錯了，不重複罰
+  const cur = BYID[conq.queue[conq.idx]];
+  if(town.n===cur.n && inScope(town)){               // 同名且在範圍內就算對
+    conq.claimed.add(town.id);
+    for(const e of town.els) e.classList.add('claimed');
+    clearWrongMarks();                               // 答對就把這題試錯的紅色清掉
+    nextConq();
+  } else {
+    conq.wrong++;
+    conq.wrongSet.add(town.id);                      // 標紅，讓玩家用刪去法
+    for(const e of town.els) e.classList.add('wrong');
+    if(conq.cooldown) conq.cool = Date.now()+conq.cooldown;
+    renderConq(); tickConq();      // 立刻更新提示，不等下一次 interval
+  }
+}
+const fmt = ms => Math.floor(ms/60000)+':'+String(Math.floor(ms/1000)%60).padStart(2,'0');
+function renderConq(){
+  const left = conq.total-conq.claimed.size;
+  document.getElementById('cOwn').textContent   = conq.claimed.size;
+  document.getElementById('cLeft').textContent  = left;
+  document.getElementById('cWrong').textContent = conq.wrong;
+  document.getElementById('roundno').textContent= conq.scope==='ALL'?'全國':conq.scope;
+  document.getElementById('total').textContent  = conq.claimed.size+' / '+conq.total;
+}
+function tickConq(){
+  if(conq.done) return;
+  document.getElementById('cTime').textContent = fmt(Date.now()-conq.t0);
+  const rest = conq.cool-Date.now();
+  const hint = document.getElementById('qhint');
+  if(rest>0) hint.innerHTML = `<span id="cool">答錯了，${(rest/1000).toFixed(1)} 秒後才能再點</span>`;
+  else if(conq.wrongSet.size) hint.innerHTML = `<span id="cool">這題試錯 ${conq.wrongSet.size} 個（標紅的可以排除）</span>`;
+  else hint.textContent='';
+}
+function finishConq(){
+  conq.done=true; clearInterval(conq.timer);
+  const el2=document.getElementById('qname');
+  el2.innerHTML = '<span class="big">全部占領！</span>';
+  document.getElementById('qhint').textContent =
+    `用時 ${fmt(Date.now()-conq.t0)}，答錯 ${conq.wrong} 次`;
+  document.getElementById('setup').style.display='block';
+  document.getElementById('startConq').textContent='再玩一次';
+}
+
+function setMode(m){
+  mode=m;
+  for(const [id,key] of [['mDist','dist'],['mConq','conq'],['mMulti','multi']])
+    document.getElementById(id).classList.toggle('on', m===key);
+  if(conq.timer) clearInterval(conq.timer);
+  if(MP.timer) clearInterval(MP.timer);
+  conq.done=true;
+  if(m!=='multi' && MP.ws){ MP.running=false; try{MP.ws.close()}catch(e){} MP.ws=null; }
+  setViewLimit([0,0,VBW,VBH]);
+  for(const t of TOWNS) for(const e of t.els){
+    e.classList.remove('claimed','wrong','owned'); e.style.fill=''; }
+  conq.wrongSet.clear(); MP.wrongMarks.clear();
+  clearFx();
+  document.getElementById('qhint').textContent='';
+  document.getElementById('histcard').style.display = m==='conq'?'none':'flex';
+  document.getElementById('optcard').style.display  = m==='dist'?'block':'none';
+  document.getElementById('mpsetup').style.display  = m==='multi'?'block':'none';
+  document.getElementById('histtitle').textContent  = m==='multi'?'房間成員':'本局紀錄';
+  if(m==='multi'){
+    document.getElementById('setup').style.display='none';
+    document.getElementById('cstats').style.display='none';
+    document.getElementById('btn').style.display='none';
+    document.getElementById('result').style.display='none';
+    document.getElementById('hist').innerHTML='';
+    document.getElementById('mphost').style.display='none';
+    document.getElementById('share').style.display='none';
+    document.getElementById('mpGo').style.display='block';
+    document.getElementById('pname').style.display='block';
+    const joining = /^#[0-9a-f-]{8,64}$/i.test(location.hash);
+    document.getElementById('mpGo').textContent = joining ? '加入房間' : '建立房間';
+    mpStatus(joining ? '輸入暱稱後加入房間' : '輸入暱稱後建立房間');
+    document.getElementById('qname').textContent='連線對戰';
+    document.getElementById('roundno').textContent='連線對戰';
+    document.getElementById('total').textContent='';
+    return;
+  }
+  if(m==='dist'){
+    document.getElementById('setup').style.display='none';
+    document.getElementById('cstats').style.display='none';
+    document.getElementById('btn').style.display='block';
+    session=[]; renderHist();
+    document.getElementById('total').textContent='0 分';
+    newRound();
+  } else {
+    document.getElementById('setup').style.display='block';
+    document.getElementById('cstats').style.display='none';
+    document.getElementById('btn').style.display='none';
+    document.getElementById('result').style.display='none';
+    document.getElementById('qname').textContent='選擇範圍';
+    document.getElementById('roundno').textContent='占領模式';
+    document.getElementById('total').textContent='';
+    document.getElementById('startConq').textContent='開始';
+  }
+}
+function buildScopeMenu(){
+  const cnt={}; for(const t of TOWNS) cnt[t.c]=(cnt[t.c]||0)+1;
+  const sel=document.getElementById('scope');
+  const opts=[['ALL',`全國（${TOWNS.length} 個鄉鎮）`]]
+    .concat(Object.entries(cnt).sort((a,b)=>b[1]-a[1])
+            .map(([c,n])=>[c,`${c}（${n} 個）`]));
+  sel.innerHTML = opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+}
+
+/* ---------- 連線對戰 ---------- */
+const WS_URL = 'wss://chatroom.openfun.app/ws';
+const COLORS = ['#4cc3a5','#e8a33d','#7aa2f7','#e8604c','#bb9af7','#9ece6a'];
+const MP = {ws:null, room:null, me:null, host:null, members:[], players:{},
+            running:false, seed:0, scope:null, queue:[], idx:0, total:0,
+            claimed:new Map(), cool:{}, wrong:{}, wrongMarks:new Set(), t0:0, timer:null};
+
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+      const r=Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16); }));
+const shareUrl = room => location.origin+location.pathname+'#'+room;
+const mpStatus = t => document.getElementById('mpstatus').textContent = t;
+const mpSend = o => MP.ws && MP.ws.readyState===1 && MP.ws.send(JSON.stringify(o));
+
+function mpConnect(room, name){
+  MP.room=room; MP.running=false;
+  mpStatus('連線中⋯');
+  const ws = MP.ws = new WebSocket(WS_URL);
+  ws.onopen = ()=> mpSend({type:'join', room, username:name, meta:{}});
+  ws.onerror = ()=> mpStatus('連線失敗，請檢查網路');
+  ws.onclose = ()=>{ if(MP.running) mpAbort('你自己斷線了'); mpStatus('連線已中斷'); };
+  ws.onmessage = ev => mpOnMsg(JSON.parse(ev.data));
+}
+function mpOnMsg(m){
+  switch(m.type){
+    case 'joined':
+      MP.me = m.userId;
+      MP.members = m.members.map(x=>({userId:x.userId, username:x.username}));
+      // 房間裡已經在比賽就不讓加入（本版不處理中途加入與重連）
+      if(historyHasRunningGame(m.history)){
+        mpStatus('這個房間正在比賽中，無法加入');
+        try{ MP.ws.close(); }catch(e){}
+        return;
+      }
+      document.getElementById('share').style.display='block';
+      document.getElementById('share').textContent = shareUrl(MP.room);
+      document.getElementById('mpGo').style.display='none';
+      document.getElementById('pname').style.display='none';
+      mpRenderLobby();
+      break;
+    case 'user-joined':
+      MP.members.push({userId:m.userId, username:m.username});
+      if(MP.running) return;            // 比賽中有人闖入就忽略
+      mpRenderLobby(); break;
+    case 'user-left':
+      MP.members = MP.members.filter(x=>x.userId!==m.userId);
+      if(MP.running) return mpAbort(`${m.username} 斷線`);
+      mpRenderLobby(); break;
+    case 'say':
+      if(m.payload.type==='start') mpOnStart(m.payload);
+      else if(m.payload.type==='claim') mpOnClaim(m.userId, m.payload, m.timestamp);
+      else if(m.payload.type==='end') mpFinish(m.payload.reason);
+      break;
+    case 'error': mpStatus('錯誤：'+m.message); break;
+  }
+}
+function historyHasRunningGame(hist){
+  let running=false;
+  for(const h of hist||[]){
+    if(h.payload && h.payload.type==='start') running=true;
+    if(h.payload && h.payload.type==='end')   running=false;
+  }
+  return running;
+}
+const isHost = () => MP.members.length && MP.members[0].userId===MP.me;
+
+function mpRenderLobby(){
+  mpStatus(isHost() ? '你是房主，把網址分享給朋友後按開始' : '等待房主開始比賽');
+  document.getElementById('mphost').style.display = isHost()?'block':'none';
+  document.getElementById('histtitle').textContent = '房間成員';
+  document.getElementById('hist').innerHTML = MP.members.map((x,i)=>
+    `<div class="mem"><span class="dot" style="background:${COLORS[i%COLORS.length]}"></span>`+
+    `${esc(x.username)}${x.userId===MP.me?'（你）':''}${i===0?' · 房主':''}</div>`).join('');
+  document.getElementById('qname').textContent = '等待開始';
+  document.getElementById('roundno').textContent = '連線對戰';
+  document.getElementById('total').textContent = MP.members.length+' 人';
+}
+const esc = t => String(t).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function mpBeginGame(){
+  if(!isHost()) return;
+  mpSend({type:'say', payload:{type:'start', seed:(Math.random()*4294967296)>>>0,
+    scope:document.getElementById('mpscope').value,
+    players:MP.members.map((x,i)=>({id:x.userId, name:x.username, color:COLORS[i%COLORS.length]}))}});
+}
+function mpOnStart(p){
+  MP.running=true; MP.seed=p.seed; MP.scope=p.scope;
+  MP.players={}; for(const pl of p.players) MP.players[pl.id]=pl;
+  conq.scope = p.scope;                                   // inScope() 共用
+  MP.queue = shuffled(TOWNS.filter(inScope).map(t=>t.id), p.seed);
+  MP.total = MP.queue.length; MP.idx=0;
+  MP.claimed=new Map(); MP.cool={}; MP.wrong={}; MP.wrongMarks=new Set();
+  for(const t of TOWNS) for(const e of t.els){ e.classList.remove('claimed','wrong','owned'); e.style.fill=''; }
+  clearFx();
+  document.getElementById('mpsetup').style.display='none';
+  document.getElementById('cstats').style.display='none';
+  document.getElementById('histtitle').textContent = '戰況';
+  MP.t0 = Date.now();
+  if(MP.timer) clearInterval(MP.timer);
+  MP.timer = setInterval(()=>{ const r=(MP.cool[MP.me]||0)-Date.now();
+    document.getElementById('qhint').innerHTML = r>0
+      ? `<span id="cool">答錯了，${(r/1000).toFixed(1)} 秒後才能再點</span>` : ''; }, 100);
+  setViewLimit(p.scope==='ALL' ? [0,0,VBW,VBH] : baseRectOfCounty(p.scope));
+  mpNext();
+}
+function mpNext(){
+  while(MP.idx<MP.queue.length && MP.claimed.has(MP.queue[MP.idx])) MP.idx++;
+  if(MP.idx>=MP.queue.length){
+    if(isHost()) mpSend({type:'say', payload:{type:'end', reason:'全部占領完畢'}});
+    return;
+  }
+  document.getElementById('qname').textContent = BYID[MP.queue[MP.idx]].n;
+  mpRenderScores();
+}
+function mpPick(town){
+  if(!MP.running || !town) return;
+  if(Date.now() < (MP.cool[MP.me]||0)) return;        // 本地先擋，省掉無效封包
+  if(MP.claimed.has(town.id)) return;
+  if(MP.wrongMarks.has(town.id)) return;              // 這題自己已試過
+  mpSend({type:'say', payload:{type:'claim', townId:town.id, idx:MP.idx}});
+}
+function mpOnClaim(userId, p, ts){
+  if(!MP.running) return;
+  if(p.idx !== MP.idx) return;                        // 過期的點擊（題目已換），不罰
+  const t = +new Date(ts);
+  if(t < (MP.cool[userId]||0)) return;                // 冷卻中，無效
+  if(MP.claimed.has(p.townId)) return;                // 已被占領，不罰
+  const town = BYID[p.townId], cur = BYID[MP.queue[MP.idx]];
+  if(!town) return;
+  if(town.n===cur.n && inScope(town)){
+    MP.claimed.set(town.id, userId);
+    const col = (MP.players[userId]||{}).color || '#888';
+    for(const e of town.els){ e.style.fill=col; e.classList.add('owned'); }
+    for(const id of MP.wrongMarks) for(const e of BYID[id].els) e.classList.remove('wrong');
+    MP.wrongMarks.clear();
+    mpNext();
+  } else {
+    MP.wrong[userId] = (MP.wrong[userId]||0)+1;
+    MP.cool[userId]  = t + COOLDOWN_MP;
+    if(userId===MP.me){                               // 只標自己的錯，不送情報給對手
+      MP.wrongMarks.add(town.id);
+      for(const e of town.els) e.classList.add('wrong');
+    }
+    mpRenderScores();
+  }
+}
+function mpScores(){
+  const s={}; for(const id in MP.players) s[id]=0;
+  for(const [,owner] of MP.claimed) s[owner]=(s[owner]||0)+1;
+  return s;
+}
+function mpRenderScores(){
+  const s = mpScores();
+  const rows = Object.values(MP.players)
+    .sort((a,b)=>(s[b.id]||0)-(s[a.id]||0))
+    .map(p=>`<div class="mem"><span class="dot" style="background:${p.color}"></span>`+
+      `${esc(p.name)}${p.id===MP.me?'（你）':''}`+
+      `<span style="color:var(--dim);font-size:12px">　錯 ${MP.wrong[p.id]||0}</span>`+
+      `<span class="sc" style="color:${p.color}">${s[p.id]||0}</span></div>`).join('');
+  document.getElementById('hist').innerHTML = rows;
+  document.getElementById('roundno').textContent = MP.scope==='ALL'?'全國':MP.scope;
+  document.getElementById('total').textContent = MP.claimed.size+' / '+MP.total;
+}
+function mpAbort(why){
+  MP.running=false; if(MP.timer) clearInterval(MP.timer);
+  document.getElementById('qname').innerHTML = '<span class="big">比賽中止</span>';
+  document.getElementById('qhint').textContent = why + '（本版不處理斷線重連）';
+  document.getElementById('mpsetup').style.display='block';
+  document.getElementById('mpGo').style.display='block';
+  document.getElementById('mpGo').textContent='重新建立房間';
+  document.getElementById('pname').style.display='block';
+}
+function mpFinish(reason){
+  MP.running=false; if(MP.timer) clearInterval(MP.timer);
+  const s=mpScores();
+  const best=Object.values(MP.players).sort((a,b)=>(s[b.id]||0)-(s[a.id]||0));
+  const win = best.length>1 && s[best[0].id]===s[best[1].id] ? null : best[0];
+  document.getElementById('qname').innerHTML = win
+    ? `<span class="big" style="color:${win.color}">${esc(win.name)} 獲勝</span>`
+    : '<span class="big">平手</span>';
+  document.getElementById('qhint').textContent =
+    `${reason}，用時 ${fmt(Date.now()-MP.t0)}`;
+  mpRenderScores();
+  document.getElementById('mpsetup').style.display='block';
+  document.getElementById('mphost').style.display = isHost()?'block':'none';
+  document.getElementById('mpStart').textContent='再來一場';
+}
+
+/* ---------- 啟動 ---------- */
+fetch('data/towns.json').then(r=>r.json()).then(d=>{
+  TOWNS = d.towns; COUNTIES = d.counties;
+  for(const t of TOWNS) (GROUPS[t.n] ||= []).push(t);
+  PROJ.main   = makeProj(boundsOf('main'),   {x:210,y:15,w:695,h:970});
+  PROJ.kinmen = makeProj(boundsOf('kinmen'), {x:20,y:60,w:175,h:150});
+  PROJ.matsu  = makeProj(boundsOf('matsu'),  {x:20,y:240,w:175,h:150});
+  drawBase();
+  applyView();
+  bindZoom();
+  document.getElementById('btn').onclick = submit;
+  for(const id of ['optIslands','optCounty'])
+    document.getElementById(id).onchange = ()=>{ if(mode==='dist' && !state.done) newRound(); };
+
+  for(const t of TOWNS) BYID[t.id]=t;
+  buildScopeMenu();
+  document.getElementById('mDist').onclick  = ()=>setMode('dist');
+  document.getElementById('mConq').onclick  = ()=>setMode('conq');
+  document.getElementById('mMulti').onclick = ()=>setMode('multi');
+  document.getElementById('mpscope').innerHTML = document.getElementById('scope').innerHTML;
+  document.getElementById('mpGo').onclick = ()=>{
+    const name = (document.getElementById('pname').value||'').trim() || '玩家';
+    const room = /^#[0-9a-f-]{8,64}$/i.test(location.hash)
+      ? location.hash.slice(1).toLowerCase() : uuid();
+    location.hash = room;
+    mpConnect(room, name);
+  };
+  document.getElementById('mpStart').onclick = mpBeginGame;
+  document.getElementById('share').onclick = function(){
+    navigator.clipboard && navigator.clipboard.writeText(this.textContent);
+    mpStatus('網址已複製，傳給朋友'); };
+  document.getElementById('startConq').onclick = ()=>
+    startConquer(document.getElementById('scope').value, (Math.random()*4294967296)>>>0);
+  if(/^#[0-9a-f-]{8,64}$/i.test(location.hash)){ newRound(); setMode('multi'); }
+  else newRound();
+});
+</script>
+</body>
+</html>
