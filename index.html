@@ -150,6 +150,7 @@
 
 <script>
 const ROUNDS = 5, SCALE = 50;          // SCALE：分數衰減距離（公里）
+const HINT_AFTER   = 3;               // 全國模式：點錯 N 個不同縣市後提示答案在哪個縣市
 const COOLDOWN_SOLO = 0;               // 單人：不冷卻，靠試錯慢慢刪去
 const COOLDOWN_MP   = 2000;            // 連線：答錯罰 2 秒（尚未啟用）
 const ZMIN = 1, ZMAX = 40;
@@ -462,7 +463,7 @@ function finish(){
 /* ---------- 占領模式 ---------- */
 let mode='dist';
 const BYID = {};
-const conq = {scope:null, seed:0, queue:[], idx:0, claimed:new Set(), wrongSet:new Set(),
+const conq = {scope:null, seed:0, queue:[], idx:0, claimed:new Set(), wrongSet:new Set(), wrongCounties:new Set(),
               wrong:0, t0:0, cool:0, cooldown:COOLDOWN_SOLO, timer:null, done:false};
 
 // 可重現的亂數：之後連線版只要同房同 seed，大家的出題順序就完全一致
@@ -475,12 +476,17 @@ function shuffled(arr, seed){
   return a;
 }
 const inScope = t => conq.scope==='ALL' || t.c===conq.scope;
+function answerCounties(queue, idx, claimed){
+  const cur = BYID[queue[idx]]; if(!cur) return [];
+  return [...new Set(TOWNS.filter(t => t.n===cur.n && inScope(t) && !claimed.has(t.id))
+                          .map(t => t.c))];
+}
 
 function startConquer(scope, seed){
   conq.scope=scope; conq.seed=seed>>>0; conq.done=false;
   conq.queue = shuffled(TOWNS.filter(inScope).map(t=>t.id), conq.seed);
   conq.total = conq.queue.length;
-  conq.idx=0; conq.claimed=new Set(); conq.wrongSet=new Set();
+  conq.idx=0; conq.claimed=new Set(); conq.wrongSet=new Set(); conq.wrongCounties=new Set();
   conq.wrong=0; conq.cool=0; conq.t0=Date.now();
   for(const t of TOWNS) for(const e of t.els) e.classList.remove('claimed','wrong');
   clearFx();
@@ -501,7 +507,7 @@ function nextConq(){
 }
 function clearWrongMarks(){
   for(const id of conq.wrongSet) for(const e of BYID[id].els) e.classList.remove('wrong');
-  conq.wrongSet.clear();
+  conq.wrongSet.clear(); conq.wrongCounties.clear();
 }
 function pickConq(town){
   if(conq.done || !conq.queue.length) return;
@@ -519,6 +525,8 @@ function pickConq(town){
     conq.wrong++;
     conq.wrongSet.add(town.id);                      // 標紅，讓玩家用刪去法
     for(const e of town.els) e.classList.add('wrong');
+    if(!answerCounties(conq.queue, conq.idx, conq.claimed).includes(town.c))
+      conq.wrongCounties.add(town.c);                // 點錯縣市才算，點錯同縣市的鄰居不算
     if(conq.cooldown) conq.cool = Date.now()+conq.cooldown;
     renderConq(); tickConq();      // 立刻更新提示，不等下一次 interval
   }
@@ -537,7 +545,10 @@ function tickConq(){
   document.getElementById('cTime').textContent = fmt(Date.now()-conq.t0);
   const rest = conq.cool-Date.now();
   const hint = document.getElementById('qhint');
+  const reveal = conq.scope==='ALL' && conq.wrongCounties.size>=HINT_AFTER
+    ? answerCounties(conq.queue, conq.idx, conq.claimed) : null;
   if(rest>0) hint.innerHTML = `<span id="cool">答錯了，${(rest/1000).toFixed(1)} 秒後才能再點</span>`;
+  else if(reveal) hint.innerHTML = `<span style="color:var(--warn)">提示：在 ${reveal.join('、')}</span>`;
   else if(conq.wrongSet.size) hint.innerHTML = `<span id="cool">這題試錯 ${conq.wrongSet.size} 個（標紅的可以排除）</span>`;
   else hint.textContent='';
 }
@@ -619,7 +630,8 @@ const WS_URL = 'wss://chatroom.openfun.app/ws';
 const COLORS = ['#4cc3a5','#e8a33d','#7aa2f7','#e8604c','#bb9af7','#9ece6a'];
 const MP = {ws:null, room:null, me:null, host:null, members:[], players:{},
             running:false, seed:0, scope:null, queue:[], idx:0, total:0,
-            claimed:new Map(), cool:{}, wrong:{}, wrongMarks:new Set(), t0:0, timer:null};
+            claimed:new Map(), cool:{}, wrong:{}, wrongMarks:new Set(), wrongCounties:new Set(),
+            t0:0, timer:null};
 
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
@@ -705,7 +717,7 @@ function mpOnStart(p){
   conq.scope = p.scope;                                   // inScope() 共用
   MP.queue = shuffled(TOWNS.filter(inScope).map(t=>t.id), p.seed);
   MP.total = MP.queue.length; MP.idx=0;
-  MP.claimed=new Map(); MP.cool={}; MP.wrong={}; MP.wrongMarks=new Set();
+  MP.claimed=new Map(); MP.cool={}; MP.wrong={}; MP.wrongMarks=new Set(); MP.wrongCounties=new Set();
   for(const t of TOWNS) for(const e of t.els){ e.classList.remove('claimed','wrong','owned'); e.style.fill=''; }
   clearFx();
   document.getElementById('mpsetup').style.display='none';
@@ -713,9 +725,13 @@ function mpOnStart(p){
   document.getElementById('histtitle').textContent = '戰況';
   MP.t0 = Date.now();
   if(MP.timer) clearInterval(MP.timer);
-  MP.timer = setInterval(()=>{ const r=(MP.cool[MP.me]||0)-Date.now();
-    document.getElementById('qhint').innerHTML = r>0
-      ? `<span id="cool">答錯了，${(r/1000).toFixed(1)} 秒後才能再點</span>` : ''; }, 100);
+  MP.timer = setInterval(()=>{
+    const r=(MP.cool[MP.me]||0)-Date.now(), h=document.getElementById('qhint');
+    const reveal = MP.scope==='ALL' && MP.wrongCounties.size>=HINT_AFTER
+      ? answerCounties(MP.queue, MP.idx, MP.claimed) : null;
+    if(r>0) h.innerHTML = `<span id="cool">答錯了，${(r/1000).toFixed(1)} 秒後才能再點</span>`;
+    else if(reveal) h.innerHTML = `<span style="color:var(--warn)">提示：在 ${reveal.join('、')}</span>`;
+    else h.textContent=''; }, 100);
   setViewLimit(p.scope==='ALL' ? [0,0,VBW,VBH] : baseRectOfCounty(p.scope));
   mpNext();
 }
@@ -748,7 +764,7 @@ function mpOnClaim(userId, p, ts){
     const col = (MP.players[userId]||{}).color || '#888';
     for(const e of town.els){ e.style.fill=col; e.classList.add('owned'); }
     for(const id of MP.wrongMarks) for(const e of BYID[id].els) e.classList.remove('wrong');
-    MP.wrongMarks.clear();
+    MP.wrongMarks.clear(); MP.wrongCounties.clear();
     mpNext();
   } else {
     MP.wrong[userId] = (MP.wrong[userId]||0)+1;
@@ -756,6 +772,8 @@ function mpOnClaim(userId, p, ts){
     if(userId===MP.me){                               // 只標自己的錯，不送情報給對手
       MP.wrongMarks.add(town.id);
       for(const e of town.els) e.classList.add('wrong');
+      if(!answerCounties(MP.queue, MP.idx, MP.claimed).includes(town.c))
+        MP.wrongCounties.add(town.c);
     }
     mpRenderScores();
   }
